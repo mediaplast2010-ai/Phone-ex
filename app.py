@@ -1,45 +1,59 @@
 # app.py
-# Онлайн Phone Extractor з масовим введенням сайтів | Українська мова
+# Phone Extractor з підтримкою JavaScript (Selenium)
 
 import streamlit as st
-import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import re
+import time
 from urllib.parse import urlparse
-from time import sleep
+import os
 
-# Налаштування сторінки
+# Налаштування Streamlit
 st.set_page_config(page_title="📞 Phone Extractor Онлайн", layout="centered")
-
-# Заголовок
 st.title("📞 Phone Extractor")
-st.markdown("Введіть один або кілька URL (по одному на рядок) — знайдемо усі телефонні номери")
+st.markdown("Введіть один або кілька URL — знайдемо усі телефонні номери (включаючи JS-сайти)")
 
-# Поле вводу (багаторядкове)
+# Поле вводу
 urls_input = st.text_area(
     "Список сайтів",
     placeholder="https://idcompass.com\nhttps://example.com",
     height=150
 )
 
-# Кнопка
 if st.button("🔍 Знайти телефони"):
     if not urls_input.strip():
         st.warning("Будь ласка, введіть хоча б один URL")
     else:
-        # Розділяємо на рядки та очищаємо
         url_list = [url.strip() for url in urls_input.splitlines() if url.strip()]
         total_urls = len(url_list)
-
         st.info(f"Обробляємо {total_urls} сайтів...")
 
-        all_phones = {}  # словник: сайт → телефони
+        all_phones = {}
         failed_sites = []
-
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Обробка кожного сайту
+        # Налаштування Selenium (безголовний режим)
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+        driver = None
+        try:
+            driver = webdriver.Chrome(options=chrome_options)
+        except:
+            st.error("Не вдалося запустити Chrome. Переконайся, що використовується підтримуваний хостинг.")
+            st.stop()
+
         for i, url in enumerate(url_list):
             status_text.text(f"Обробляємо: {url}")
             progress_bar.progress((i + 1) / total_urls)
@@ -48,18 +62,21 @@ if st.button("🔍 Знайти телефони"):
                 url = "https://" + url
 
             try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                response = requests.get(url, headers=headers, timeout=15)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'html.parser')
+                driver.get(url)
+                # Чекаємо, щоб сторінка завантажилася
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                time.sleep(3)  # Додаткове очікування для JS
+
+                # Отримуємо HTML після виконання JS
+                html = driver.page_source
+                soup = BeautifulSoup(html, 'html.parser')
                 text = soup.get_text()
 
                 # Пошук телефонів
                 phone_pattern = r'(\+\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})'
                 matches = re.findall(phone_pattern, text)
-
                 phones = set()
                 for match in matches:
                     phone = ''.join(match)
@@ -68,23 +85,19 @@ if st.button("🔍 Знайти телефони"):
                     phones.add(phone)
 
                 phones = sorted(phones)
-
                 domain = urlparse(url).netloc or "unknown"
                 all_phones[domain] = phones
 
             except Exception as e:
                 failed_sites.append(f"{url} — помилка: {str(e)}")
 
-            sleep(0.5)  # легка затримка, щоб не блокували
-
-        # Підсумок
+        driver.quit()
         status_text.text("Пошук завершено!")
         progress_bar.progress(100)
 
         # Вивід результатів
         if all_phones:
             st.success("✅ Пошук завершено. Знайдені телефони:")
-
             full_output = ""
             for domain, phones in all_phones.items():
                 if phones:
@@ -96,7 +109,6 @@ if st.button("🔍 Знайти телефони"):
                     st.info(f"ℹ️ На `{domain}` телефони не знайдено")
                     full_output += f"{domain}\n(не знайдено)\n\n"
 
-            # Кнопка завантаження
             st.download_button(
                 label="⬇️ Завантажити всі результати як .txt",
                 data=full_output.strip(),
@@ -111,9 +123,8 @@ if st.button("🔍 Знайти телефони"):
             for fail in failed_sites:
                 st.markdown(f"- `{fail}`")
 
-# Футер
 st.markdown("---")
 st.markdown(
-    "💡 <small>Додаток працює без зберігання даних. Не використовуйте для спаму.</small>",
+    "💡 <small>Додаток використовує Selenium для підтримки JS. Працює на більшості сайтів.</small>",
     unsafe_allow_html=True
 )
