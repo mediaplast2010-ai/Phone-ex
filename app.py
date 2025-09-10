@@ -228,4 +228,6 @@ st.markdown("---")
 st.markdown(
     "💡 <small>Режим з кліками потрібен, якщо телефони приховані за кнопками. Працює локально.</small>",
     unsafe_allow_html=True
-)
+)if __name__ == '__main__':
+    import os
+    os.system('streamlit run app.py --server.address=0.0.0.0 --server.port=$PORT')
